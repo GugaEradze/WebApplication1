@@ -13,9 +13,54 @@ public class CommunityController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Community>>> GetCommunities()
+    public async Task<IActionResult> GetCommunities(
+    int pageNumber = 1,
+    int pageSize = 10,
+    bool? isAscending = true,
+    string? sortKey = "id",
+    string? searchKey = null)
     {
-        return await _context.Communities.Include(c => c.Owner).ToListAsync();
+        if (pageSize > 50) return BadRequest("Page size cannot exceed 50.");
+
+        var query = _context.Communities.AsQueryable();
+
+        if (!string.IsNullOrEmpty(searchKey))
+        {
+            query = query.Where(c => c.Name.Contains(searchKey) || c.Description.Contains(searchKey));
+        }
+
+        query = sortKey switch
+        {
+            "createdAt" => isAscending.GetValueOrDefault(true)
+                ? query.OrderBy(c => c.CreatedAt)
+                : query.OrderByDescending(c => c.CreatedAt),
+            "postsCount" => isAscending.GetValueOrDefault(true)
+                ? query.OrderBy(c => c.Posts.Count)
+                : query.OrderByDescending(c => c.Posts.Count),
+            "subscribersCount" => isAscending.GetValueOrDefault(true)
+                ? query.OrderBy(c => c.UserSubscribers.Count)
+                : query.OrderByDescending(c => c.UserSubscribers.Count),
+            _ => isAscending.GetValueOrDefault(true)
+                ? query.OrderBy(c => c.Id)
+                : query.OrderByDescending(c => c.Id)
+        };
+
+        var totalItems = await query.CountAsync();
+        var communities = await query
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        var response = new
+        {
+            TotalItems = totalItems,
+            PageNumber = pageNumber,
+            PageSize = pageSize,
+            TotalPages = (int)Math.Ceiling(totalItems / (double)pageSize),
+            Data = communities
+        };
+
+        return Ok(response);
     }
 
     [HttpPost]
